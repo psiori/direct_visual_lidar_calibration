@@ -1,8 +1,5 @@
 #include <vlcal/common/ivox.hpp>
 
-#include <chrono>
-#include <random>
-#include <iostream>
 #include <type_traits>
 
 namespace vlcal {
