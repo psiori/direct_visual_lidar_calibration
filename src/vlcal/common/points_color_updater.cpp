@@ -39,20 +39,25 @@ void PointsColorUpdater::update(const Eigen::Isometry3d& T_camera_liar, const do
 
   for (int i = 0; i < points->size(); i++) {
     const Eigen::Vector4d pt_camera = T_camera_liar * points->points[i];
-
+    bool in_image = true;
     if (pt_camera.head<3>().normalized().z() < min_nz) {
       // Out of FoV
-      continue;
+      // continue;
+      in_image = false;
     }
 
     const Eigen::Vector2i pt_2d = proj->project(pt_camera.head<3>()).cast<int>();
     if ((pt_2d.array() < Eigen::Array2i::Zero()).any() || (pt_2d.array() >= Eigen::Array2i(image.cols, image.rows)).any()) {
       // Out of Image
-      continue;
+      // continue;
+      in_image = false;
     }
 
-    const unsigned char pix = image.at<std::uint8_t>(pt_2d.y(), pt_2d.x());
-    const Eigen::Vector4f color(pix / 255.0f, pix / 255.0f, pix / 255.0f, 1.0f);
+    Eigen::Vector4f color(0, 0, 0, 1);
+    if (in_image) {
+      const auto pix = image.at<std::uint8_t>(pt_2d.y(), pt_2d.x());
+      color = Eigen::Vector4f(pix / 255.0f, pix / 255.0f, pix / 255.0f, 1.0f);
+    }
 
     colors->at(i) = color * blend_weight + intensity_colors[i] * (1.0 - blend_weight);
   }
