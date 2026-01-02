@@ -24,7 +24,7 @@ find_package(PCL REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(GTSAM REQUIRED)
 find_package(OpenCV REQUIRED)
-find_package(Boost REQUIRED COMPONENTS filesystem program_options)
+find_package(Boost REQUIRED COMPONENTS filesystem program_options date_time)
 find_package(Iridescence REQUIRED)
 
 set(OLD_DISTRO "humble;galactic;foxy")
