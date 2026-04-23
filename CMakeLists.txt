@@ -33,7 +33,7 @@ find_package(GTSAM REQUIRED)
 # some module or another, we get a seemingly unrelated error when finding PCL.
 # Therefore, only find the actually needed modules
 find_package(OpenCV REQUIRED COMPONENTS core highgui imgproc)
-find_package(Boost REQUIRED COMPONENTS filesystem program_options)
+find_package(Boost REQUIRED COMPONENTS filesystem program_options date_time)
 find_package(Iridescence REQUIRED)
 find_package(fmt REQUIRED)
 
