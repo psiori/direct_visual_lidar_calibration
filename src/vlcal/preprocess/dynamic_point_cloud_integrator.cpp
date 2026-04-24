@@ -80,6 +80,7 @@ void DynamicPointCloudIntegrator::insert_points(const Frame::ConstPtr& frame) {
   }
 
   const double scan_duration = frame_sorted->scan_duration > 0 ? frame_sorted->scan_duration : frame_sorted->times[frame_sorted->size() - 1];
+  std::cout << "scan duration: " << scan_duration << std::endl;
   const gtsam::Vector6 pred_v_odom_lidar = gtsam::Pose3::Logmap(last_T_odom_lidar_begin.between(last_T_odom_lidar_end)) / scan_duration;
   const gtsam::Pose3 pred_T_odom_lidar_begin = last_T_odom_lidar_end;
   const gtsam::Pose3 pred_T_odom_lidar_end = last_T_odom_lidar_end * gtsam::Pose3::Expmap(0.75 * pred_v_odom_lidar * scan_duration);

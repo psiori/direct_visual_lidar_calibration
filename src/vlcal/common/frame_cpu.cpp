@@ -56,6 +56,7 @@ FrameCPU::FrameCPU(const Frame& frame) {
     aux_attributes_storage[name] = storage;
     aux_attributes[name] = std::make_pair(elem_size, storage->data());
   }
+  this->scan_duration = frame.scan_duration;
 }
 
 FrameCPU::FrameCPU() {}
@@ -280,6 +281,7 @@ FrameCPU::Ptr FrameCPU::load(const std::string& path) {
 // sample
 FrameCPU::Ptr sample(const Frame::ConstPtr& frame, const std::vector<int>& indices) {
   FrameCPU::Ptr sampled(new FrameCPU);
+  sampled->scan_duration = frame->scan_duration;
   sampled->num_points = indices.size();
   sampled->points_storage.resize(indices.size());
   sampled->points = sampled->points_storage.data();
@@ -373,6 +375,7 @@ FrameCPU::Ptr voxelgrid_sampling(const Frame::ConstPtr& frame, const double voxe
 
   // Take the average of point attributes of each voxel
   FrameCPU::Ptr downsampled(new FrameCPU);
+  downsampled->scan_duration = frame->scan_duration;
   downsampled->num_points = voxels.size();
   downsampled->points_storage.resize(voxels.size());
   downsampled->points = downsampled->points_storage.data();
