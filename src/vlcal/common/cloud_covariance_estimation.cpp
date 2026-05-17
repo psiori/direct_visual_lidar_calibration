@@ -1,6 +1,7 @@
 #include <vlcal/common/cloud_covariance_estimation.hpp>
 
 #include <iostream>
+#include <cassert>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
