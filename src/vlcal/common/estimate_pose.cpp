@@ -13,7 +13,7 @@
 
 namespace vlcal {
 
-PoseEstimation::PoseEstimation(const PoseEstimationParams& params) {}
+PoseEstimation::PoseEstimation(const PoseEstimationParams& params) : params(params) {}
 
 PoseEstimation::~PoseEstimation() {}
 
