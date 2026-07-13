@@ -1,3 +1,4 @@
+#include <stdexcept>
 #include <vlcal/common/estimate_pose.hpp>
 
 #include <random>
@@ -131,6 +132,9 @@ Eigen::Matrix3d PoseEstimation::estimate_rotation_ransac(
   }
 
   std::cout << "num_inliers: " << best_num_inliers << " / " << correspondences.size() << std::endl;
+  if (best_num_inliers < 3)  {
+      throw std::runtime_error("Not enough inliers found");
+  }
 
   if (inliers) {
     inliers->resize(correspondences.size());
