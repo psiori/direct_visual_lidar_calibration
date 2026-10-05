@@ -30,6 +30,8 @@ class DirectVisualLidarCalibrationConan(ConanFile):
     def configure(self):
         if self.options.shared:
             self.options.rm_safe("fPIC")
+        self.options["opencv"].with_ffmpeg = False
+        self.options["opencv"].with_gtk = False
 
     def requirements(self):
         self.requires("eigen/3.4.0")
