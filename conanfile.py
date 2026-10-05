@@ -67,10 +67,10 @@ class DirectVisualLidarCalibrationConan(ConanFile):
         cmake.install()
 
     def package_info(self):
-        self.cpp_info.set_property("cmake_file_name", "direct_visual_lidar_calibration")
-        self.cpp_info.set_property("cmake_target_name", "direct_visual_lidar_calibration::vlcal_align")
+        self.cpp_info.set_property("cmake_find_mode", "none")
+        self.cpp_info.includedirs = ["include"]
+        self.cpp_info.libdirs = ["lib"]
+        self.cpp_info.libs = ["vlcal_align"]
         if self.options.build_vlcal_preprocess:
-            self.cpp_info.components["preprocess"].set_property(
-                "cmake_target_name", "direct_visual_lidar_calibration::vlcal_preprocess"
-            )
-            self.cpp_info.components["preprocess"].requires = ["vlcal_align"]
+            self.cpp_info.libs.append("vlcal_preprocess")
+        self.cpp_info.builddirs.append("lib/cmake/direct_visual_lidar_calibration")
