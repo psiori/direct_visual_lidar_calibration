@@ -6,6 +6,7 @@
 
 #include <camera/create_camera.hpp>
 #include <vlcal/common/console_colors.hpp>
+#include <vlcal/common/visual_lidar_data_loader.hpp>
 #include <vlcal/common/visual_lidar_visualizer.hpp>
 
 #include <guik/viewer/light_viewer.hpp>
@@ -89,7 +90,7 @@ public:
 
     const std::vector<std::string> bag_names = config["meta"]["bag_names"];
     for (const auto& bag_name : bag_names) {
-      dataset.emplace_back(std::make_shared<VisualLiDARData>(data_path, bag_name));
+      dataset.emplace_back(load_visual_lidar_data(data_path, bag_name));
     }
 
     vis.reset(new VisualLiDARVisualizer(proj, dataset, false));

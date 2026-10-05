@@ -13,9 +13,11 @@
 
 #include <vlcal/common/cloud_covariance_estimation.hpp>
 
+#ifdef VLCAL_WITH_IRIDESCENCE
 #include <glk/pointcloud_buffer.hpp>
 #include <glk/primitives/primitives.hpp>
 #include <guik/viewer/light_viewer.hpp>
+#endif
 
 namespace vlcal {
 
@@ -91,6 +93,9 @@ void DynamicPointCloudIntegrator::insert_points(const Frame::ConstPtr& frame) {
   gtsam::NonlinearFactorGraph graph;
   auto factor = std::make_shared<IntegratedCT_GICPFactor_<iVox, Frame>>(0, 1, target_ivox, points, target_ivox);
   factor->set_num_threads(params.num_threads);
+  if (frame_sorted->scan_duration > 0) {
+    factor->set_time_span(0.0, frame_sorted->scan_duration);
+  }
   graph.add(factor);
 
   graph.emplace_shared<gtsam::PriorFactor<gtsam::Pose3>>(0, gtsam::Pose3(pred_T_odom_lidar_begin), gtsam::noiseModel::Isotropic::Precision(6, 1e3));
@@ -116,6 +121,7 @@ void DynamicPointCloudIntegrator::insert_points(const Frame::ConstPtr& frame) {
 
   alignment_results.push(std::make_tuple(frame_sorted, values.at<gtsam::Pose3>(0), values.at<gtsam::Pose3>(1)));
 
+#ifdef VLCAL_WITH_IRIDESCENCE
   if (params.visualize) {
     auto viewer = guik::LightViewer::instance();
     viewer->update_drawable("coord", glk::Primitives::coordinate_system(), guik::VertexColor(last_T_odom_lidar_end.matrix()));
@@ -123,6 +129,7 @@ void DynamicPointCloudIntegrator::insert_points(const Frame::ConstPtr& frame) {
     viewer->update_drawable("target", std::make_shared<glk::PointCloudBuffer>(target_ivox->voxel_points()), guik::Rainbow());
     viewer->spin_once();
   }
+#endif
 }
 
 void DynamicPointCloudIntegrator::voxelgrid_task() {
@@ -135,14 +142,14 @@ void DynamicPointCloudIntegrator::voxelgrid_task() {
     const auto& raw_points = std::get<0>(*data);
     const auto& T_odom_lidar_begin = std::get<1>(*data);
     const auto& T_odom_lidar_end = std::get<2>(*data);
-    const double max_timestamp = raw_points->times[raw_points->size() - 1];
+    const double scan_duration = raw_points->scan_duration > 0 ? raw_points->scan_duration : raw_points->times[raw_points->size() - 1];
 
     double last_t = -1.0;
     gtsam::Pose3 T_odom_lidar = T_odom_lidar_begin;
 
     const double time_eps = 1e-4;
     for (int i = 0; i < raw_points->size(); i++) {
-      const double t = raw_points->times[i] / max_timestamp;
+      const double t = raw_points->times[i] / std::max(1e-9, scan_duration);
 
       if (t - last_t > time_eps) {
         last_t = t;

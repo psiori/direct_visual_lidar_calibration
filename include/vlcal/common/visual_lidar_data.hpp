@@ -12,10 +12,9 @@ public:
   using Ptr = std::shared_ptr<VisualLiDARData>;
   using ConstPtr = std::shared_ptr<const VisualLiDARData>;
 
-  VisualLiDARData() {}
+  VisualLiDARData() = default;
   VisualLiDARData(const cv::Mat& image, const FrameCPU::Ptr& points) : image(image), points(points) {}
-  VisualLiDARData(const std::string& data_path, const std::string& bag_name);
-  ~VisualLiDARData();
+  ~VisualLiDARData() = default;
 
 public:
   cv::Mat image;

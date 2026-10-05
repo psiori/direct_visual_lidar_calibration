@@ -40,8 +40,10 @@ IntegratedCT_ICPFactor_<TargetFrame, SourceFrame>::IntegratedCT_ICPFactor_(
     time_indices.push_back(time_table.size() - 1);
   }
 
+  const double span_denom = time_span_set ? (time_span_t1 - time_span_t0) : time_table.back();
+  const double span_t0 = time_span_set ? time_span_t0 : 0.0;
   for (auto& t : time_table) {
-    t = t / std::max(1e-9, time_table.back());
+    t = (t - span_t0) / std::max(1e-9, span_denom);
   }
 
   if (target_tree) {

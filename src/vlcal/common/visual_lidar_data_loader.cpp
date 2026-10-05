@@ -1,17 +1,20 @@
-#include <vlcal/common/visual_lidar_data.hpp>
+#include <vlcal/common/visual_lidar_data_loader.hpp>
 
-#include <opencv2/opencv.hpp>
+#include <iostream>
+
+#include <opencv2/imgcodecs.hpp>
 #include <vlcal/common/console_colors.hpp>
 
 #include <glk/io/ply_io.hpp>
 
 namespace vlcal {
 
-VisualLiDARData::VisualLiDARData(const std::string& data_path, const std::string& bag_name) {
+VisualLiDARData::Ptr load_visual_lidar_data(const std::string& data_path, const std::string& bag_name) {
   std::cout << "loading " << data_path + "/" + bag_name + ".(png|ply)" << std::endl;
 
-  image = cv::imread(data_path + "/" + bag_name + ".png", 0);
-  if (!image.data) {
+  auto data = std::make_shared<VisualLiDARData>();
+  data->image = cv::imread(data_path + "/" + bag_name + ".png", 0);
+  if (!data->image.data) {
     std::cerr << vlcal::console::bold_red << "warning: failed to load " << data_path + "/" + bag_name + ".png" << vlcal::console::reset << std::endl;
     abort();
   }
@@ -22,10 +25,9 @@ VisualLiDARData::VisualLiDARData(const std::string& data_path, const std::string
     abort();
   }
 
-  points = std::make_shared<FrameCPU>(ply->vertices);
-  points->add_intensities(ply->intensities);
+  data->points = std::make_shared<FrameCPU>(ply->vertices);
+  data->points->add_intensities(ply->intensities);
+  return data;
 }
 
-VisualLiDARData::~VisualLiDARData() {}
-
-}
+}  // namespace vlcal

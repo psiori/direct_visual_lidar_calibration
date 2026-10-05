@@ -15,7 +15,7 @@
 #include <camera/create_camera.hpp>
 #include <vlcal/common/estimate_fov.hpp>
 #include <vlcal/common/estimate_pose.hpp>
-#include <vlcal/common/visual_lidar_data.hpp>
+#include <vlcal/common/visual_lidar_data_loader.hpp>
 
 #include <glk/primitives/primitives.hpp>
 #include <glk/pointcloud_buffer.hpp>
@@ -52,7 +52,7 @@ public:
 
     const std::vector<std::string> bag_names = config["meta"]["bag_names"];
     for (const auto& bag_name : bag_names) {
-      dataset.emplace_back(std::make_shared<VisualLiDARData>(data_path, bag_name));
+      dataset.emplace_back(load_visual_lidar_data(data_path, bag_name));
       auto corrs = read_correspondences(data_path, bag_name, dataset.back()->points);
       correspondences.insert(correspondences.end(), corrs.begin(), corrs.end());
     }

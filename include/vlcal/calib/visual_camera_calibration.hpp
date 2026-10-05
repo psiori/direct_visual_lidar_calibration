@@ -1,6 +1,12 @@
 #pragma once
 
+#include <functional>
+#include <vector>
+
+#include <opencv2/core.hpp>
+
 #include <camera/generic_camera_base.hpp>
+#include <vlcal/calib/calibration_result.hpp>
 #include <vlcal/common/visual_lidar_data.hpp>
 
 namespace vlcal {
@@ -12,6 +18,7 @@ public:
   VisualCameraCalibrationParams() {
     max_outer_iterations = 10;
     max_inner_iterations = 256;
+    num_threads = 4;
 
     delta_trans_thresh = 0.1;
     delta_rot_thresh = 0.5 * M_PI / 180.0;
@@ -25,34 +32,39 @@ public:
     nelder_mead_convergence_criteria = 1e-8;
   }
 
-  int max_outer_iterations;   ///< Maximum number of outer iterations
-  int max_inner_iterations;   ///< Maximum number of inner iterations (Nelder-Mead iterations)
-  double delta_trans_thresh;  ///< Convergence criteria of the outer loop
-  double delta_rot_thresh;    ///<
+  int max_outer_iterations;
+  int max_inner_iterations;
+  int num_threads;
+  double delta_trans_thresh;
+  double delta_rot_thresh;
 
-  bool disable_z_buffer_culling;  ///< If true, do not remove hidden points
-  int nid_bins;                   ///< Number of histogram bins for NID computation
+  bool disable_z_buffer_culling;
+  int nid_bins;
 
   RegistrationType registration_type;
   double nelder_mead_init_step;
   double nelder_mead_convergence_criteria;
 
-  std::function<void(const Eigen::Isometry3d& T_camera_lidar)> callback;
+  std::function<void(const CalibrationProgress&)> on_progress;
 };
 
 class VisualCameraCalibration {
 public:
-  VisualCameraCalibration(const camera::GenericCameraBase::ConstPtr& proj, const std::vector<VisualLiDARData::ConstPtr>& dataset, const VisualCameraCalibrationParams& params = VisualCameraCalibrationParams());
+  VisualCameraCalibration(
+    const camera::GenericCameraBase::ConstPtr& proj,
+    const std::vector<VisualLiDARData::ConstPtr>& dataset,
+    const VisualCameraCalibrationParams& params = VisualCameraCalibrationParams());
 
-  Eigen::Isometry3d calibrate(const Eigen::Isometry3d& init_T_camera_lidar);
+  CalibrationResult calibrate(const Eigen::Isometry3d& init_T_camera_lidar);
 
 private:
-  Eigen::Isometry3d estimate_pose_nelder_mead(const Eigen::Isometry3d& init_T_camera_lidar);
-  Eigen::Isometry3d estimate_pose_bfgs(const Eigen::Isometry3d& init_T_camera_lidar);
+  CalibrationResult estimate_pose_nelder_mead(const Eigen::Isometry3d& init_T_camera_lidar, int outer_iteration);
+  CalibrationResult estimate_pose_bfgs(const Eigen::Isometry3d& init_T_camera_lidar, int outer_iteration);
+
+  static cv::Mat to_grayscale(const cv::Mat& image);
 
 private:
   const VisualCameraCalibrationParams params;
-
   const camera::GenericCameraBase::ConstPtr proj;
   const std::vector<VisualLiDARData::ConstPtr> dataset;
 };

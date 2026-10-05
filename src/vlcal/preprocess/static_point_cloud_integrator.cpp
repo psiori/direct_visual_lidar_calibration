@@ -1,7 +1,9 @@
 #include <vlcal/preprocess/static_point_cloud_integrator.hpp>
 
+#ifdef VLCAL_WITH_IRIDESCENCE
 #include <glk/pointcloud_buffer.hpp>
 #include <guik/viewer/light_viewer.hpp>
+#endif
 
 namespace vlcal {
 
@@ -14,10 +16,12 @@ StaticPointCloudIntegratorParams::StaticPointCloudIntegratorParams() {
 StaticPointCloudIntegratorParams::~StaticPointCloudIntegratorParams() {}
 
 StaticPointCloudIntegrator::StaticPointCloudIntegrator(const StaticPointCloudIntegratorParams& params) : params(params) {
+#ifdef VLCAL_WITH_IRIDESCENCE
   if (params.visualize) {
     auto viewer = guik::LightViewer::instance();
     viewer->clear_drawables();
   }
+#endif
 }
 
 StaticPointCloudIntegrator::~StaticPointCloudIntegrator() {}
@@ -35,6 +39,7 @@ void StaticPointCloudIntegrator::insert_points(const Frame::ConstPtr& raw_points
     voxelgrid[coord] = Eigen::Vector4d(pt[0], pt[1], pt[2], intensity);
   }
 
+#ifdef VLCAL_WITH_IRIDESCENCE
   if (params.visualize) {
     auto viewer = guik::LightViewer::instance();
     auto cloud_buffer = std::make_shared<glk::PointCloudBuffer>(raw_points->points, raw_points->size());
@@ -42,6 +47,7 @@ void StaticPointCloudIntegrator::insert_points(const Frame::ConstPtr& raw_points
     viewer->update_drawable("current", cloud_buffer, guik::FlatOrange().set_point_scale(2.0f));
     viewer->spin_once();
   }
+#endif
 }
 
 Frame::ConstPtr StaticPointCloudIntegrator::get_points() {

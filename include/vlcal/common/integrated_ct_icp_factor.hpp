@@ -59,6 +59,13 @@ public:
   void set_num_threads(int n) { num_threads = n; }
   void set_max_corresponding_distance(double dist) { max_correspondence_distance_sq = dist * dist; }
 
+  /// Normalize per-point times to alpha in [t0/t1, 1] using span [t0, t1] (seconds).
+  void set_time_span(double t0, double t1) {
+    time_span_t0 = t0;
+    time_span_t1 = t1;
+    time_span_set = true;
+  }
+
   const std::vector<double>& get_time_table() const { return time_table; }
   const std::vector<int>& get_time_indices() const { return time_indices; }
   const std::vector<gtsam::Pose3, Eigen::aligned_allocator<gtsam::Pose3>>& get_source_poses() const { return source_poses; }
@@ -74,6 +81,9 @@ protected:
 protected:
   int num_threads;
   double max_correspondence_distance_sq;
+  double time_span_t0 = 0.0;
+  double time_span_t1 = 1.0;
+  bool time_span_set = false;
 
   std::shared_ptr<NearestNeighborSearch> target_tree;
 

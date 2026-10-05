@@ -1,28 +1,32 @@
 #include <vlcal/calib/visual_camera_calibration.hpp>
 
-#include <boost/format.hpp>
-#include <opencv2/opencv.hpp>
+#include <algorithm>
+#include <limits>
+
 #include <opencv2/imgproc.hpp>
 
 #include <ceres/ceres.h>
-#include <ceres/problem.h>
-#include <ceres/rotation.h>
 #include <ceres/autodiff_first_order_function.h>
 
 #include <sophus/se3.hpp>
 #include <sophus/ceres_manifold.hpp>
 
 #include <dfo/nelder_mead.hpp>
-#include <gtsam/geometry/Pose3.h>
 
 #include <vlcal/costs/nid_cost.hpp>
 #include <vlcal/calib/view_culling.hpp>
 #include <vlcal/calib/cost_calculator_nid.hpp>
 
-#include <glk/pointcloud_buffer.hpp>
-#include <guik/viewer/light_viewer.hpp>
-
 namespace vlcal {
+
+namespace {
+
+Eigen::Isometry3d expmap_delta(const Eigen::Matrix<double, 6, 1>& xi) {
+  Sophus::SE3d delta = Sophus::SE3d::exp(xi);
+  return Eigen::Isometry3d(delta.matrix());
+}
+
+}  // namespace
 
 VisualCameraCalibration::VisualCameraCalibration(
   const camera::GenericCameraBase::ConstPtr& proj,
@@ -32,110 +36,124 @@ VisualCameraCalibration::VisualCameraCalibration(
   proj(proj),
   dataset(dataset) {}
 
-Eigen::Isometry3d VisualCameraCalibration::calibrate(const Eigen::Isometry3d& init_T_camera_lidar) {
-  Eigen::Isometry3d T_camera_lidar = init_T_camera_lidar;
+cv::Mat VisualCameraCalibration::to_grayscale(const cv::Mat& image) {
+  if (image.channels() == 1) {
+    return image;
+  }
+  cv::Mat gray;
+  cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+  return gray;
+}
 
-  // Outer loop
-  for (int i = 0; i < params.max_outer_iterations; i++) {
-    Eigen::Isometry3d new_T_camera_lidar;
+CalibrationResult VisualCameraCalibration::calibrate(const Eigen::Isometry3d& init_T_camera_lidar) {
+  CalibrationResult result;
+  if (dataset.empty()) {
+    result.error = CalibrationError::EmptyDataset;
+    result.message = "dataset is empty";
+    return result;
+  }
+  for (const auto& data : dataset) {
+    if (!data || !data->points || data->points->size() == 0) {
+      result.error = CalibrationError::EmptyPointCloud;
+      result.message = "dataset contains an empty point cloud";
+      return result;
+    }
+  }
+
+  Eigen::Isometry3d T_camera_lidar = init_T_camera_lidar;
+  result.T_camera_lidar = T_camera_lidar;
+
+  for (int outer = 0; outer < params.max_outer_iterations; ++outer) {
+    CalibrationResult inner;
     switch (params.registration_type) {
       case RegistrationType::NID_BFGS:
-        new_T_camera_lidar = estimate_pose_bfgs(T_camera_lidar);
+        inner = estimate_pose_bfgs(T_camera_lidar, outer);
         break;
       case RegistrationType::NID_NELDER_MEAD:
-        new_T_camera_lidar = estimate_pose_nelder_mead(T_camera_lidar);
+        inner = estimate_pose_nelder_mead(T_camera_lidar, outer);
         break;
+      default:
+        result.error = CalibrationError::InvalidArgument;
+        result.message = "unknown registration_type";
+        return result;
     }
 
-    const Eigen::Isometry3d delta = new_T_camera_lidar.inverse() * T_camera_lidar;
-    T_camera_lidar = new_T_camera_lidar;
+    if (inner.error != CalibrationError::Ok) {
+      return inner;
+    }
+
+    const Eigen::Isometry3d delta = inner.T_camera_lidar.inverse() * T_camera_lidar;
+    T_camera_lidar = inner.T_camera_lidar;
+    result.T_camera_lidar = T_camera_lidar;
+    result.final_cost = inner.final_cost;
+    result.inner_iterations += inner.inner_iterations;
+    result.outer_iterations = outer + 1;
 
     const double delta_t = delta.translation().norm();
     const double delta_r = Eigen::AngleAxisd(delta.linear()).angle();
-    const bool converged = delta_t < params.delta_trans_thresh && delta_r < params.delta_rot_thresh;
-
-    std::stringstream sst;
-    sst << boost::format("delta_t: %.3f [m]  delta_r: %.3f [rad]") % delta_t % delta_r << std::endl;
-    sst << (converged ? "Outer loop converged" : "Re-run inner optimization with the new viewpoint");
-    guik::LightViewer::instance()->append_text(sst.str());
-
-    if (converged) {
+    if (delta_t < params.delta_trans_thresh && delta_r < params.delta_rot_thresh) {
       break;
     }
   }
 
-  return T_camera_lidar;
+  result.error = CalibrationError::Ok;
+  return result;
 }
 
-Eigen::Isometry3d VisualCameraCalibration::estimate_pose_nelder_mead(const Eigen::Isometry3d& init_T_camera_lidar) {
+CalibrationResult VisualCameraCalibration::estimate_pose_nelder_mead(const Eigen::Isometry3d& init_T_camera_lidar, int outer_iteration) {
+  CalibrationResult result;
   ViewCullingParams view_culling_params;
   view_culling_params.enable_depth_buffer_culling = !params.disable_z_buffer_culling;
   ViewCulling view_culling(proj, {dataset.front()->image.cols, dataset.front()->image.rows}, view_culling_params);
 
   std::vector<CostCalculator::Ptr> costs;
   for (const auto& data : dataset) {
-    // Remove hidden points
     auto culled_points = view_culling.cull(data->points, init_T_camera_lidar);
-    auto new_data = std::make_shared<VisualLiDARData>(data->image, culled_points);
+    const cv::Mat gray = to_grayscale(data->image);
+    auto new_data = std::make_shared<VisualLiDARData>(gray, culled_points);
 
-    // Create NID cost
     NIDCostParams nid_params;
     nid_params.bins = params.nid_bins;
     costs.emplace_back(std::make_shared<CostCalculatorNID>(proj, new_data, nid_params));
-
-    /*
-    auto viewer = guik::LightViewer::instance();
-    viewer->invoke([=] {
-      auto culled_cloud_buffer = std::make_shared<glk::PointCloudBuffer>(culled_points->points, culled_points->size());
-      culled_cloud_buffer->add_intensity(glk::COLORMAP::TURBO, culled_points->intensities, culled_points->size());
-      auto raw_cloud_buffer = std::make_shared<glk::PointCloudBuffer>(data->points->points, data->points->size());
-      auto sub = viewer->sub_viewer("view_culling");
-      sub->set_draw_xy_grid(false);
-      sub->set_camera_control(viewer->get_camera_control());
-      sub->update_drawable("raw", raw_cloud_buffer, guik::FlatColor(0.2f, 0.2f, 0.2f, 1.0f));
-      sub->update_drawable("culled", culled_cloud_buffer, guik::VertexColor().add("point_scale", 1.5f));
-    });
-    */
   }
 
   double best_cost = std::numeric_limits<double>::max();
 
-  const auto f = [&](const gtsam::Vector6& x) {
-    const Eigen::Isometry3d T_camera_lidar = init_T_camera_lidar * Eigen::Isometry3d(gtsam::Pose3::Expmap(x).matrix());
+  const auto f = [&](const Eigen::Matrix<double, 6, 1>& x) {
+    const Eigen::Isometry3d T_camera_lidar = init_T_camera_lidar * expmap_delta(x);
     double sum_costs = 0.0;
 
-#pragma omp parallel for reduction(+ : sum_costs)
-    for (int i = 0; i < costs.size(); i++) {
+#pragma omp parallel for num_threads(params.num_threads) reduction(+ : sum_costs)
+    for (int i = 0; i < static_cast<int>(costs.size()); i++) {
       sum_costs += costs[i]->calculate(T_camera_lidar);
     }
 
     if (sum_costs < best_cost) {
       best_cost = sum_costs;
-      params.callback(T_camera_lidar);
-      std::cout << "cost:" << best_cost << std::endl;
+      if (params.on_progress) {
+        CalibrationProgress progress;
+        progress.outer_iteration = outer_iteration;
+        progress.cost = best_cost;
+        progress.T_camera_lidar = T_camera_lidar;
+        params.on_progress(progress);
+      }
     }
 
     return sum_costs;
   };
 
-  // Optimize
   dfo::NelderMead<6>::Params nelder_mead_params;
   nelder_mead_params.init_step = params.nelder_mead_init_step;
   nelder_mead_params.convergence_var_thresh = params.nelder_mead_convergence_criteria;
   nelder_mead_params.max_iterations = params.max_inner_iterations;
   dfo::NelderMead<6> optimizer(nelder_mead_params);
-  auto result = optimizer.optimize(f, gtsam::Vector6::Zero());
+  auto opt = optimizer.optimize(f, Eigen::Matrix<double, 6, 1>::Zero());
 
-  const Eigen::Isometry3d T_camera_lidar = init_T_camera_lidar * Eigen::Isometry3d(gtsam::Pose3::Expmap(result.x).matrix());
-
-  std::stringstream sst;
-  sst << boost::format("Inner optimization (Nelder-Mead) terminated after %d iterations") % result.num_iterations << std::endl;
-  sst << boost::format("Final cost: %.3f") % result.y << std::endl;
-  sst << "--- T_camera_lidar ---" << std::endl << T_camera_lidar.matrix();
-
-  guik::LightViewer::instance()->append_text(sst.str());
-
-  return T_camera_lidar;
+  result.T_camera_lidar = init_T_camera_lidar * expmap_delta(opt.x);
+  result.final_cost = opt.y;
+  result.inner_iterations = opt.num_iterations;
+  result.error = CalibrationError::Ok;
+  return result;
 }
 
 struct MultiNIDCost {
@@ -159,16 +177,15 @@ public:
     std::vector<T> residuals(costs.size());
 
 #pragma omp parallel for
-    for (int i = 0; i < costs.size(); i++) {
+    for (int i = 0; i < static_cast<int>(costs.size()); i++) {
       results[i] = (*costs[i])(params, &residuals[i]);
     }
 
-    for (int i = 1; i < costs.size(); i++) {
+    for (int i = 1; i < static_cast<int>(costs.size()); i++) {
       residuals[0] += residuals[i];
     }
 
     *residual = residuals[0];
-
     return std::count(results.begin(), results.end(), false) == 0;
   }
 
@@ -181,30 +198,29 @@ struct IterationCallbackWrapper : public ceres::IterationCallback {
 public:
   IterationCallbackWrapper(const std::function<ceres::CallbackReturnType(const ceres::IterationSummary&)>& callback) : callback(callback) {}
 
-  virtual ceres::CallbackReturnType operator()(const ceres::IterationSummary& summary) { return callback(summary); }
+  ceres::CallbackReturnType operator()(const ceres::IterationSummary& summary) override { return callback(summary); }
 
 private:
   std::function<ceres::CallbackReturnType(const ceres::IterationSummary&)> callback;
 };
 
-Eigen::Isometry3d VisualCameraCalibration::estimate_pose_bfgs(const Eigen::Isometry3d& init_T_camera_lidar) {
+CalibrationResult VisualCameraCalibration::estimate_pose_bfgs(const Eigen::Isometry3d& init_T_camera_lidar, int outer_iteration) {
+  CalibrationResult result;
   ViewCullingParams view_culling_params;
   view_culling_params.enable_depth_buffer_culling = !params.disable_z_buffer_culling;
   ViewCulling view_culling(proj, {dataset.front()->image.cols, dataset.front()->image.rows}, view_culling_params);
 
   Sophus::SE3d T_camera_lidar(init_T_camera_lidar.matrix());
-
   std::vector<std::shared_ptr<NIDCost>> nid_costs;
 
-  for (int i = 0; i < dataset.size(); i++) {
-    // Remove hidden points
-    auto culled_points = view_culling.cull(dataset[i]->points, init_T_camera_lidar);
+  for (const auto& data : dataset) {
+    auto culled_points = view_culling.cull(data->points, init_T_camera_lidar);
+    const cv::Mat gray = to_grayscale(data->image);
 
     cv::Mat normalized_image;
-    dataset[i]->image.convertTo(normalized_image, CV_64FC1, 1.0 / 255.0);
+    gray.convertTo(normalized_image, CV_64FC1, 1.0 / 255.0);
 
-    std::shared_ptr<NIDCost> nid_cost(new NIDCost(proj, normalized_image, culled_points, params.nid_bins));
-    nid_costs.emplace_back(nid_cost);
+    nid_costs.emplace_back(std::make_shared<NIDCost>(proj, normalized_image, culled_points, params.nid_bins));
   }
 
   auto sum_nid = new MultiNIDCost(T_camera_lidar);
@@ -216,25 +232,37 @@ Eigen::Isometry3d VisualCameraCalibration::estimate_pose_bfgs(const Eigen::Isome
   ceres::GradientProblem problem(cost, new Sophus::Manifold<Sophus::SE3>());
 
   ceres::GradientProblemSolver::Options options;
-  options.minimizer_progress_to_stdout = true;
+  options.minimizer_progress_to_stdout = false;
   options.update_state_every_iteration = true;
   options.line_search_direction_type = ceres::BFGS;
+  options.max_num_iterations = params.max_inner_iterations;
 
-  options.callbacks.emplace_back(new IterationCallbackWrapper([&](const ceres::IterationSummary& summary) {
-    params.callback(Eigen::Isometry3d(T_camera_lidar.matrix()));
-    return ceres::CallbackReturnType::SOLVER_CONTINUE;
-  }));
+  if (params.on_progress) {
+    options.callbacks.emplace_back(new IterationCallbackWrapper([&](const ceres::IterationSummary& summary) {
+      CalibrationProgress progress;
+      progress.outer_iteration = outer_iteration;
+      progress.inner_iteration = static_cast<int>(summary.iteration);
+      progress.cost = summary.cost;
+      progress.T_camera_lidar = Eigen::Isometry3d(T_camera_lidar.matrix());
+      params.on_progress(progress);
+      return ceres::CallbackReturnType::SOLVER_CONTINUE;
+    }));
+  }
 
   ceres::GradientProblemSolver::Summary summary;
   ceres::Solve(options, problem, T_camera_lidar.data(), &summary);
 
-  std::stringstream sst;
-  sst << boost::format("Inner optimization (BFGS) terminated after %d iterations") % summary.iterations.size() << std::endl;
-  sst << boost::format("Final cost: %.3f") % summary.final_cost << std::endl;
-  sst << "--- T_camera_lidar ---" << std::endl << T_camera_lidar.matrix();
-  guik::LightViewer::instance()->append_text(sst.str());
+  if (!summary.IsSolutionUsable()) {
+    result.error = CalibrationError::OptimizationFailed;
+    result.message = "BFGS failed to converge";
+    return result;
+  }
 
-  return Eigen::Isometry3d(T_camera_lidar.matrix());
+  result.T_camera_lidar = Eigen::Isometry3d(T_camera_lidar.matrix());
+  result.final_cost = summary.final_cost;
+  result.inner_iterations = static_cast<int>(summary.iterations.size());
+  result.error = CalibrationError::Ok;
+  return result;
 }
 
 }  // namespace vlcal

@@ -17,9 +17,10 @@
 #include <camera/create_camera.hpp>
 #include <vlcal/costs/nid_cost.hpp>
 #include <vlcal/common/console_colors.hpp>
-#include <vlcal/common/visual_lidar_data.hpp>
+#include <vlcal/common/visual_lidar_data_loader.hpp>
 #include <vlcal/common/points_color_updater.hpp>
 #include <vlcal/common/visual_lidar_visualizer.hpp>
+#include <vlcal/calib/calibration_result.hpp>
 #include <vlcal/calib/visual_camera_calibration.hpp>
 
 namespace vlcal {
@@ -42,7 +43,7 @@ public:
 
     std::vector<std::string> bag_names = config["meta"]["bag_names"];
     for (const auto& bag_name : bag_names) {
-      dataset.emplace_back(std::make_shared<VisualLiDARData>(data_path, bag_name));
+      dataset.emplace_back(load_visual_lidar_data(data_path, bag_name));
     }
 
     if (vm.count("first_n_bags")) {
@@ -109,13 +110,15 @@ public:
       std::cerr << vlcal::console::bold_yellow << "warning: unknown registration type " << registration_type << vlcal::console::reset << std::endl;
     }
 
-    params.callback = [&](const Eigen::Isometry3d& T_camera_lidar) { vis.set_T_camera_lidar(T_camera_lidar); };
+    params.on_progress = [&](const CalibrationProgress& progress) { vis.set_T_camera_lidar(progress.T_camera_lidar); };
     VisualCameraCalibration calib(proj, dataset, params);
 
     std::atomic_bool optimization_terminated = false;
     Eigen::Isometry3d T_camera_lidar = init_T_camera_lidar;
+    CalibrationResult calibration_result;
     std::thread optimization_thread([&] {
-      T_camera_lidar = calib.calibrate(init_T_camera_lidar);
+      calibration_result = calib.calibrate(init_T_camera_lidar);
+      T_camera_lidar = calibration_result.T_camera_lidar;
       optimization_terminated = true;
     });
 

@@ -24,6 +24,8 @@ public:
  */
 class TimeKeeper {
 public:
+  static AbsPointTimeParams legacy_auto_params() { return AbsPointTimeParams(); }
+
   TimeKeeper(const AbsPointTimeParams& abs_params = AbsPointTimeParams());
   ~TimeKeeper();
 
@@ -41,8 +43,9 @@ public:
    */
   bool validate_imu_stamp(const double imu_stamp);
 
-private:
   void replace_points_stamp(const vlcal::RawPoints::Ptr& points);
+
+private:
   double estimate_scan_duration(const double stamp);
 
 private:
