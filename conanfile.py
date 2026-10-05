@@ -1,7 +1,5 @@
 from conan import ConanFile
-from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
-from conan.tools.files import copy
-import os
+from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
 
 
 class DirectVisualLidarCalibrationConan(ConanFile):
@@ -54,6 +52,8 @@ class DirectVisualLidarCalibrationConan(ConanFile):
         tc.variables["BUILD_WITH_MARCH_NATIVE"] = self.options.build_with_march_native
         tc.variables["BUILD_VLCAL_TESTS"] = False
         tc.generate()
+        deps = CMakeDeps(self)
+        deps.generate()
 
     def build(self):
         cmake = CMake(self)
@@ -68,6 +68,7 @@ class DirectVisualLidarCalibrationConan(ConanFile):
         self.cpp_info.set_property("cmake_file_name", "direct_visual_lidar_calibration")
         self.cpp_info.set_property("cmake_target_name", "direct_visual_lidar_calibration::vlcal_align")
         if self.options.build_vlcal_preprocess:
-            self.cpp_info.components["align"].set_property("cmake_target_name", "direct_visual_lidar_calibration::vlcal_align")
-            self.cpp_info.components["preprocess"].set_property("cmake_target_name", "direct_visual_lidar_calibration::vlcal_preprocess")
-            self.cpp_info.components["preprocess"].requires = ["align"]
+            self.cpp_info.components["preprocess"].set_property(
+                "cmake_target_name", "direct_visual_lidar_calibration::vlcal_preprocess"
+            )
+            self.cpp_info.components["preprocess"].requires = ["vlcal_align"]
