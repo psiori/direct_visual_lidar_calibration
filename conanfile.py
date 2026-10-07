@@ -2,6 +2,37 @@ import os
 
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
+from conan.tools.files import copy
+
+_EXPORT_EXCLUDES = (
+    ".git",
+    ".git/*",
+    "build",
+    "build/*",
+    "build_*",
+    "build_*/*",
+    "build_preprocess",
+    "build_preprocess/*",
+    "install",
+    "install/*",
+    "cmake-build-*",
+    ".cache",
+    ".cache/*",
+    ".vscode",
+    ".idea",
+    "__pycache__",
+    "__pycache__/*",
+    "*.pyc",
+    ".DS_Store",
+    "conanbuild.sh",
+    "conanbuildenv-*",
+    "conanrun.sh",
+    "conanrunenv-*",
+    "deactivate_conanbuild.sh",
+    "deactivate_conanrun.sh",
+    "compile_commands.json",
+    "CMakeUserPresets.json",
+)
 
 
 def _set_gtsam_dir(tc, conanfile):
@@ -33,7 +64,9 @@ class DirectVisualLidarCalibrationConan(ConanFile):
         "build_with_viewer": False,
         "build_with_march_native": True,
     }
-    exports_sources = "*"
+
+    def export_sources(self):
+        copy(self, "*", self.recipe_folder, self.export_sources_folder, excludes=_EXPORT_EXCLUDES)
 
     def config_options(self):
         if self.settings.os == "Windows":
