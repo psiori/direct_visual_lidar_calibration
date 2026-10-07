@@ -27,9 +27,9 @@ class DirectVisualLidarCalibrationConan(ConanFile):
         "build_with_march_native": [True, False],
     }
     default_options = {
-        "shared": True,
+        "shared": False,
         "fPIC": True,
-        "build_vlcal_preprocess": True,
+        "build_vlcal_preprocess": False,
         "build_with_viewer": False,
         "build_with_march_native": True,
     }
