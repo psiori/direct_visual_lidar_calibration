@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 4.4.0)
 project(direct_visual_lidar_calibration VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -82,15 +82,23 @@ if(BUILD_VLCAL_PREPROCESS)
     src/vlcal/preprocess/static_point_cloud_integrator.cpp
     src/vlcal/preprocess/dynamic_point_cloud_integrator.cpp
   )
+  if(TARGET gtsam)
+    set(VLCAL_GTSAM_LIBS gtsam)
+  else()
+    set(VLCAL_GTSAM_LIBS ${GTSAM_LIBRARIES})
+  endif()
+
   target_include_directories(vlcal_preprocess PUBLIC
     ${VLCAL_INCLUDE_DIRS}
     ${Boost_INCLUDE_DIRS}
-    ${GTSAM_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
   )
+  if(GTSAM_INCLUDE_DIRS)
+    target_include_directories(vlcal_preprocess PUBLIC ${GTSAM_INCLUDE_DIRS})
+  endif()
   target_link_libraries(vlcal_preprocess PUBLIC
     ${Boost_LIBRARIES}
-    ${GTSAM_LIBRARIES}
+    ${VLCAL_GTSAM_LIBS}
     ${PCL_LIBRARIES}
     fmt::fmt
   )

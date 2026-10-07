@@ -1,5 +1,17 @@
+import os
+
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
+
+
+def _set_gtsam_dir(tc, conanfile):
+    try:
+        gtsam = conanfile.dependencies["gtsam"]
+    except (KeyError, AttributeError):
+        return
+    gtsam_dir = os.path.join(gtsam.package_folder, "lib", "cmake", "GTSAM")
+    if os.path.isdir(gtsam_dir):
+        tc.variables["GTSAM_DIR"] = gtsam_dir
 
 
 class DirectVisualLidarCalibrationConan(ConanFile):
@@ -53,6 +65,7 @@ class DirectVisualLidarCalibrationConan(ConanFile):
         tc.variables["BUILD_WITH_VIEWER"] = self.options.build_with_viewer
         tc.variables["BUILD_WITH_MARCH_NATIVE"] = self.options.build_with_march_native
         tc.variables["BUILD_VLCAL_TESTS"] = False
+        _set_gtsam_dir(tc, self)
         tc.generate()
         deps = CMakeDeps(self)
         deps.generate()
