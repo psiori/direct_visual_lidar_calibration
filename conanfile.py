@@ -82,11 +82,11 @@ class DirectVisualLidarCalibrationConan(ConanFile):
         self.requires("eigen/3.4.0")
         self.requires("ceres-solver/2.2.0")
         self.requires("opencv/4.10.0")
+        self.requires("boost/1.83.0")
         if self.options.build_vlcal_preprocess:
             self.requires("gtsam/4.3a1")
             self.requires("pcl/1.14.1")
             self.requires("fmt/10.2.1")
-            self.requires("boost/1.83.0")
 
     def layout(self):
         cmake_layout(self)

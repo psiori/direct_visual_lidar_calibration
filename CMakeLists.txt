@@ -33,7 +33,7 @@ set(VLCAL_INCLUDE_DIRS
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/thirdparty/Bonxai/include>
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/thirdparty/nanoflann/include>
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/thirdparty/Sophus>
-  $<INSTALL_INTERFACE:include>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/direct_visual_lidar_calibration>
 )
 
 # ---------------------------------------------------------------------------
@@ -192,6 +192,24 @@ install(EXPORT ${PROJECT_NAME}Targets
   DESTINATION ${INSTALL_CONFIGDIR})
 
 include(CMakePackageConfigHelpers)
+
+set(VLCAL_PREPROCESS_DEPENDENCIES "")
+if(BUILD_VLCAL_PREPROCESS)
+  set(VLCAL_PREPROCESS_DEPENDENCIES [[
+find_dependency(PCL REQUIRED)
+find_dependency(GTSAM REQUIRED)
+find_dependency(Boost REQUIRED COMPONENTS program_options date_time)
+find_dependency(fmt REQUIRED)
+]])
+endif()
+
+set(VLCAL_VIEWER_DEPENDENCIES "")
+if(BUILD_WITH_VIEWER)
+  set(VLCAL_VIEWER_DEPENDENCIES [[
+find_dependency(Iridescence REQUIRED)
+]])
+endif()
+
 write_basic_package_version_file(${PROJECT_BINARY_DIR}/${PROJECT_NAME}ConfigVersion.cmake
   VERSION ${PROJECT_VERSION} COMPATIBILITY AnyNewerVersion)
 configure_package_config_file(${PROJECT_SOURCE_DIR}/cmake/${PROJECT_NAME}Config.cmake.in
