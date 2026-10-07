@@ -1,0 +1,27 @@
+# Keep Conan recipe revisions stable across repeated local builds.
+
+build/
+build_*/
+build_preprocess/
+install/
+cmake-build-*/
+
+.cache/
+.vscode/
+.idea/
+
+.git/
+.DS_Store
+
+__pycache__/
+*.py[cod]
+
+conanbuild.sh
+conanbuildenv-*.sh
+conanrun.sh
+conanrunenv-*.sh
+deactivate_conanbuild.sh
+deactivate_conanrun.sh
+
+compile_commands.json
+CMakeUserPresets.json
