@@ -1,6 +1,7 @@
 #include <stdexcept>
 #include <vlcal/common/estimate_pose.hpp>
 
+#include <numeric>
 #include <random>
 
 #include <ceres/ceres.h>
@@ -22,11 +23,14 @@ Eigen::Isometry3d PoseEstimation::estimate(
   const camera::GenericCameraBase::ConstPtr& proj,
   const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector4d>>& correspondences,
   std::vector<bool>* inliers) {
-  // RANSAC
   Eigen::Isometry3d T_camera_lidar = Eigen::Isometry3d::Identity();
-  T_camera_lidar.linear() = estimate_rotation_ransac(proj, correspondences, inliers);
-
-  std::cout << "--- T_camera_lidar (RANSAC) ---" << std::endl;
+  if (params.trust_correspondences) {
+    T_camera_lidar.linear() = estimate_rotation_direct(proj, correspondences, inliers);
+    std::cout << "--- T_camera_lidar (direct rotation) ---" << std::endl;
+  } else {
+    T_camera_lidar.linear() = estimate_rotation_ransac(proj, correspondences, inliers);
+    std::cout << "--- T_camera_lidar (RANSAC) ---" << std::endl;
+  }
   std::cout << T_camera_lidar.matrix() << std::endl;
 
   // Reprojection error minimization
@@ -36,6 +40,67 @@ Eigen::Isometry3d PoseEstimation::estimate(
   std::cout << T_camera_lidar.matrix() << std::endl;
 
   return T_camera_lidar;
+}
+
+namespace {
+
+Eigen::Matrix3d rotation_from_bearing_pairs(
+  const std::vector<Eigen::Vector4d>& directions_camera,
+  const std::vector<Eigen::Vector4d>& directions_lidar,
+  const std::vector<int>& indices) {
+  Eigen::Matrix<double, 3, -1> A(3, indices.size());
+  Eigen::Matrix<double, 3, -1> B(3, indices.size());
+
+  for (int i = 0; i < static_cast<int>(indices.size()); i++) {
+    const int index = indices[i];
+    A.col(i) = directions_camera[index].head<3>();
+    B.col(i) = directions_lidar[index].head<3>();
+  }
+
+  const Eigen::Matrix3d AB = A * B.transpose();
+
+  Eigen::JacobiSVD<Eigen::Matrix3d> svd(AB, Eigen::ComputeFullU | Eigen::ComputeFullV);
+  const Eigen::Matrix3d U = svd.matrixU();
+  const Eigen::Matrix3d V = svd.matrixV();
+  Eigen::Matrix3d S = Eigen::Matrix3d::Identity();
+
+  const double det = U.determinant() * V.determinant();
+  if (det < 0.0) {
+    S(2, 2) = -1.0;
+  }
+
+  return U * S * V.transpose();
+}
+
+}  // namespace
+
+Eigen::Matrix3d PoseEstimation::estimate_rotation_direct(
+  const camera::GenericCameraBase::ConstPtr& proj,
+  const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector4d>>& correspondences,
+  std::vector<bool>* inliers) {
+  if (correspondences.size() < 2) {
+    throw std::runtime_error("At least 2 correspondences required for rotation estimation");
+  }
+
+  std::cout << "estimating bearing vectors" << std::endl;
+  std::vector<Eigen::Vector4d> directions_camera(correspondences.size());
+  std::vector<Eigen::Vector4d> directions_lidar(correspondences.size());
+  for (int i = 0; i < static_cast<int>(correspondences.size()); i++) {
+    directions_camera[i] << estimate_direction(proj, correspondences[i].first), 0.0;
+    directions_lidar[i] << correspondences[i].second.head<3>().normalized(), 0.0;
+  }
+
+  std::vector<int> indices(correspondences.size());
+  std::iota(indices.begin(), indices.end(), 0);
+
+  std::cout << "estimating rotation from all " << correspondences.size() << " correspondences" << std::endl;
+  const Eigen::Matrix3d R_camera_lidar = rotation_from_bearing_pairs(directions_camera, directions_lidar, indices);
+
+  if (inliers) {
+    inliers->assign(correspondences.size(), true);
+  }
+
+  return R_camera_lidar;
 }
 
 Eigen::Matrix3d PoseEstimation::estimate_rotation_ransac(
@@ -50,38 +115,6 @@ Eigen::Matrix3d PoseEstimation::estimate_rotation_ransac(
     directions_camera[i] << estimate_direction(proj, correspondences[i].first), 0.0;
     directions_lidar[i] << correspondences[i].second.head<3>().normalized(), 0.0;
   }
-
-  // LSQ rotation estimation
-  // https://web.stanford.edu/class/cs273/refs/umeyama.pdf
-  const auto find_rotation = [&](const std::vector<int>& indices) {
-    Eigen::Matrix<double, 3, -1> A(3, indices.size());
-    Eigen::Matrix<double, 3, -1> B(3, indices.size());
-
-    for (int i = 0; i < indices.size(); i++) {
-      const int index = indices[i];
-      const auto& d_c = directions_camera[index];
-      const auto& d_l = directions_lidar[index];
-
-      A.col(i) = d_c.head<3>();
-      B.col(i) = d_l.head<3>();
-    }
-
-    const Eigen::Matrix3d AB = A * B.transpose();
-
-    Eigen::JacobiSVD<Eigen::Matrix3d> svd(AB, Eigen::ComputeFullU | Eigen::ComputeFullV);
-    const Eigen::Matrix3d U = svd.matrixU();
-    const Eigen::Matrix3d V = svd.matrixV();
-    const Eigen::Matrix3d D = svd.singularValues().asDiagonal();
-    Eigen::Matrix3d S = Eigen::Matrix3d::Identity();
-
-    double det = U.determinant() * V.determinant();
-    if (det < 0.0) {
-      S(2, 2) = -1.0;
-    }
-
-    const Eigen::Matrix3d R_camera_lidar = U * S * V.transpose();
-    return R_camera_lidar;
-  };
 
   const double error_thresh_sq = std::pow(params.ransac_error_thresh, 2);
 
@@ -110,7 +143,7 @@ Eigen::Matrix3d PoseEstimation::estimate_rotation_ransac(
 
     // Estimate rotation
     Eigen::Matrix4d R_camera_lidar = Eigen::Matrix4d::Zero();
-    R_camera_lidar.topLeftCorner<3, 3>() = find_rotation(indices);
+    R_camera_lidar.topLeftCorner<3, 3>() = rotation_from_bearing_pairs(directions_camera, directions_lidar, indices);
 
     // Count num of inliers
     int num_inliers = 0;
@@ -164,7 +197,10 @@ Eigen::Isometry3d PoseEstimation::estimate_pose_lsq(
   for (const auto& [pt_2d, pt_3d] : correspondences) {
     auto reproj_error = new ReprojectionCost(proj, pt_3d.head<3>(), pt_2d);
     auto ad_cost = new ceres::AutoDiffCostFunction<ReprojectionCost, 2, Sophus::SE3d::num_parameters>(reproj_error);
-    auto loss = new ceres::CauchyLoss(params.robust_kernel_width);
+    ceres::LossFunction* loss = nullptr;
+    if (!params.trust_correspondences) {
+      loss = new ceres::CauchyLoss(params.robust_kernel_width);
+    }
     problem.AddResidualBlock(ad_cost, loss, T_camera_lidar.data());
   }
 

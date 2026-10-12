@@ -12,11 +12,14 @@ struct PoseEstimationParams {
     ransac_iterations = 8192;
     ransac_error_thresh = 5.0;
     robust_kernel_width = 10.0;
+    trust_correspondences = false;
   }
 
   int ransac_iterations;      ///< RANSAC iterations
   double ransac_error_thresh; ///< RANSAC inlier threshold [pix]
   double robust_kernel_width; ///< Robust kernel width for reprojection error minimization
+  /// When true, use all correspondences for rotation (no RANSAC) and plain least-squares reprojection.
+  bool trust_correspondences;
 };
 
 /**
@@ -38,6 +41,11 @@ public:
   estimate(const camera::GenericCameraBase::ConstPtr& proj, const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector4d>>& correspondences, std::vector<bool>* inliers = nullptr);
 
 private:
+  Eigen::Matrix3d estimate_rotation_direct(
+    const camera::GenericCameraBase::ConstPtr& proj,
+    const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector4d>>& correspondences,
+    std::vector<bool>* inliers);
+
   Eigen::Matrix3d estimate_rotation_ransac(
     const camera::GenericCameraBase::ConstPtr& proj,
     const std::vector<std::pair<Eigen::Vector2d, Eigen::Vector4d>>& correspondences,
