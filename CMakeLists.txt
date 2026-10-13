@@ -41,7 +41,14 @@ set(VLCAL_INCLUDE_DIRS
 # ---------------------------------------------------------------------------
 if(BUILD_VLCAL_ALIGN)
   find_package(Ceres REQUIRED)
-  find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+  if(NOT TARGET opencv_core)
+    if(OpenCV_DIR)
+      find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc
+        PATHS "${OpenCV_DIR}" NO_DEFAULT_PATH NO_CMAKE_PACKAGE_REGISTRY)
+    else()
+      find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc)
+    endif()
+  endif()
   find_package(Eigen3 REQUIRED)
   find_package(Boost REQUIRED COMPONENTS filesystem)
 
