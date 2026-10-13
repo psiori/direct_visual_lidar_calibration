@@ -28,11 +28,12 @@ public:
 
   bool visualize;         ///< If true, show integrated points
   bool verbose;           ///< If true, print out optimization progress
+  bool integrator_debug;  ///< Per-scan deskew / LM / pose stats on stderr
   int num_threads;        ///< Number of threads
   int k_neighbors;        ///< Number of neighbor points for covariance estimation
   int target_num_points;  ///< Target number of points for downsampling
 
-  double min_distance;      ///< Points closer to the sensor origin than this will be discarded
+  double min_distance;      ///< In scanner frame: discard points closer than this to the sensor origin
   double voxel_resolution;  ///< Dense target model downsampling resolution
 };
 
@@ -66,5 +67,6 @@ private:
   std::thread voxelgrid_thread;
   ConcurrentQueue<std::tuple<Frame::ConstPtr, gtsam::Pose3, gtsam::Pose3>> alignment_results;
   std::unordered_map<Eigen::Vector3i, Eigen::Vector4d, Vector3iHash> voxelgrid;
+  int scan_count_ = 0;
 };
 }  // namespace vlcal

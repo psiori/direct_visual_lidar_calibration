@@ -13,6 +13,11 @@
 
 #include <vlcal/common/cloud_covariance_estimation.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <iomanip>
+#include <iostream>
+
 #ifdef VLCAL_WITH_IRIDESCENCE
 #include <glk/pointcloud_buffer.hpp>
 #include <glk/primitives/primitives.hpp>
@@ -21,9 +26,53 @@
 
 namespace vlcal {
 
+namespace {
+
+void log_integrator_diagnostics(
+  int scan_index,
+  bool is_seed,
+  const Frame& frame,
+  double scan_duration,
+  int subsample_points,
+  std::size_t target_map_points,
+  std::size_t output_voxels,
+  const gtsam::Pose3& begin,
+  const gtsam::Pose3& end,
+  double lm_error_initial,
+  double lm_error_final) {
+  double time_min = 0.0;
+  double time_max = 0.0;
+  if (frame.has_times() && frame.size() > 0) {
+    const auto [tmin, tmax] =
+      std::minmax_element(frame.times, frame.times + frame.size());
+    time_min = *tmin;
+    time_max = *tmax;
+  }
+  const double inv_dur = 1.0 / std::max(1e-9, scan_duration);
+  const gtsam::Pose3 delta = begin.between(end);
+  const double scan_trans = delta.translation().norm();
+  const gtsam::Vector3 scan_omega = gtsam::Rot3::Logmap(delta.rotation());
+  const double scan_rot_deg = scan_omega.norm() * (180.0 / M_PI);
+  const double odom_trans = end.translation().norm();
+  const gtsam::Vector3 odom_omega = gtsam::Rot3::Logmap(end.rotation());
+  const double odom_rot_deg = odom_omega.norm() * (180.0 / M_PI);
+
+  std::cerr << "[integrator-diag] scan=" << scan_index << (is_seed ? " (seed)" : "") << "\n"
+            << "  raw_points=" << frame.size() << " subsample=" << subsample_points
+            << " target_map_pts=" << target_map_points << " output_voxels=" << output_voxels << "\n"
+            << std::fixed << std::setprecision(6) << "  time_s=[" << time_min << ", " << time_max << "] alpha=["
+            << time_min * inv_dur << ", " << time_max * inv_dur << "]\n"
+            << "  lm_error initial=" << lm_error_initial << " final=" << lm_error_final << "\n"
+            << std::setprecision(4) << "  scan_motion trans_m=" << scan_trans << " rot_deg=" << scan_rot_deg << "\n"
+            << "  odom_end trans_m=" << odom_trans << " rot_deg=" << odom_rot_deg << "\n";
+}
+
+}  // namespace
+
 DynamicPointCloudIntegratorParams::DynamicPointCloudIntegratorParams() {
   visualize = false;
   verbose = false;
+  integrator_debug = false;
   num_threads = 16;
   k_neighbors = 20;
   target_num_points = 10000;
@@ -55,6 +104,8 @@ DynamicPointCloudIntegrator::~DynamicPointCloudIntegrator() {
 }
 
 void DynamicPointCloudIntegrator::insert_points(const Frame::ConstPtr& frame) {
+  ++scan_count_;
+  const int scan_index = scan_count_;
   auto frame_sorted = sort_by_time(frame);
   auto points = randomgrid_sampling(frame_sorted, 0.5, static_cast<double>(params.target_num_points) / frame_sorted->size(), mt);
 
@@ -78,6 +129,22 @@ void DynamicPointCloudIntegrator::insert_points(const Frame::ConstPtr& frame) {
     // Handling the first frame
     target_ivox->insert(*points);
     alignment_results.push(std::make_tuple(frame_sorted, gtsam::Pose3(), gtsam::Pose3()));
+    if (params.integrator_debug) {
+      const double scan_duration =
+        frame_sorted->scan_duration > 0 ? frame_sorted->scan_duration : frame_sorted->times[frame_sorted->size() - 1];
+      log_integrator_diagnostics(
+        scan_index,
+        true,
+        *frame_sorted,
+        scan_duration,
+        static_cast<int>(points->size()),
+        target_ivox->voxel_points().size(),
+        voxelgrid.size(),
+        gtsam::Pose3(),
+        gtsam::Pose3(),
+        0.0,
+        0.0);
+    }
     return;
   }
 
@@ -107,9 +174,11 @@ void DynamicPointCloudIntegrator::insert_points(const Frame::ConstPtr& frame) {
     lm_params.setVerbosityLM("SUMMARY");
   }
 
+  const double lm_error_initial = graph.error(values);
   for (int i = 0; i < 3; i++) {
     values = gtsam::LevenbergMarquardtOptimizer(graph, values, lm_params).optimize();
   }
+  const double lm_error_final = graph.error(values);
 
   last_T_odom_lidar_begin = values.at<gtsam::Pose3>(0);
   last_T_odom_lidar_end = values.at<gtsam::Pose3>(1);
@@ -120,6 +189,21 @@ void DynamicPointCloudIntegrator::insert_points(const Frame::ConstPtr& frame) {
   target_ivox->insert(*deskewed);
 
   alignment_results.push(std::make_tuple(frame_sorted, values.at<gtsam::Pose3>(0), values.at<gtsam::Pose3>(1)));
+
+  if (params.integrator_debug) {
+    log_integrator_diagnostics(
+      scan_index,
+      false,
+      *frame_sorted,
+      scan_duration,
+      static_cast<int>(points->size()),
+      target_ivox->voxel_points().size(),
+      voxelgrid.size(),
+      last_T_odom_lidar_begin,
+      last_T_odom_lidar_end,
+      lm_error_initial,
+      lm_error_final);
+  }
 
 #ifdef VLCAL_WITH_IRIDESCENCE
   if (params.visualize) {
@@ -156,11 +240,11 @@ void DynamicPointCloudIntegrator::voxelgrid_task() {
         T_odom_lidar = T_odom_lidar_begin.interpolateRt(T_odom_lidar_end, t);
       }
 
-      const Eigen::Vector4d pt = T_odom_lidar.matrix() * raw_points->points[i];
-
-      if (pt.head<3>().norm() < params.min_distance) {
+      if (raw_points->points[i].head<3>().norm() < params.min_distance) {
         continue;
       }
+
+      const Eigen::Vector4d pt = T_odom_lidar.matrix() * raw_points->points[i];
 
       const Eigen::Vector3i coord = (pt / params.voxel_resolution).array().floor().cast<int>().head<3>();
       mtx_.lock();
